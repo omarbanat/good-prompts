@@ -47,8 +47,7 @@ export async function captureGitDiff(): Promise<string> {
 }
 
 export async function captureTerminalError(): Promise<string> {
-  // VS Code does not expose terminal content directly.
-  return 'Paste your error here';
+  return '';
 }
 
 export async function captureTestFile(activeFilePath: string): Promise<string> {

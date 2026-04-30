@@ -29,7 +29,15 @@ function buildContextBlock(
   const parts: string[] = [];
 
   if (contextAttachments.codeSnippet && contextData.codeSnippet) {
-    parts.push(`\`\`\`\n${contextData.codeSnippet}\n\`\`\``);
+    let snippet = contextData.codeSnippet;
+    const range = contextAttachments.codeSnippetLineRange.trim();
+    const rangeMatch = range.match(/^(\d+)\s*-\s*(\d+)$/);
+    if (rangeMatch) {
+      const start = Math.max(0, parseInt(rangeMatch[1], 10) - 1);
+      const end = parseInt(rangeMatch[2], 10);
+      snippet = snippet.split('\n').slice(start, end).join('\n');
+    }
+    parts.push(`\`\`\`\n${snippet}\n\`\`\``);
   }
 
   if (contextAttachments.terminalError && contextData.terminalError) {

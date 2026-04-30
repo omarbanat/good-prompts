@@ -24,6 +24,7 @@ export interface ContextData {
 
 export interface ContextAttachments {
   codeSnippet: boolean;
+  codeSnippetLineRange: string;
   terminalError: boolean;
   gitDiff: boolean;
   testFile: boolean;

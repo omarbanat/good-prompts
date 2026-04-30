@@ -1,16 +1,25 @@
-import * as vscode from 'vscode';
-import { GoodPromptsPanel } from './GoodPromptsPanel';
+import * as vscode from "vscode";
+import { GoodPromptsPanel } from "./GoodPromptsPanel";
+import { GoodPromptsViewProvider } from "./GoodPromptsViewProvider";
 
 export function activate(context: vscode.ExtensionContext): void {
-  // Register the command to open the panel
-  const openCommand = vscode.commands.registerCommand('goodPrompts.open', () => {
-    GoodPromptsPanel.createOrShow(context.extensionUri, context);
-  });
+  const provider = new GoodPromptsViewProvider(context.extensionUri, context);
+  context.subscriptions.push(
+    vscode.window.registerWebviewViewProvider(
+      GoodPromptsViewProvider.viewType,
+      provider,
+      { webviewOptions: { retainContextWhenHidden: true } }
+    )
+  );
+
+  const openCommand = vscode.commands.registerCommand(
+    "goodPrompts.open",
+    () => {
+      GoodPromptsPanel.createOrShow(context.extensionUri, context);
+    },
+  );
 
   context.subscriptions.push(openCommand);
-
-  // Auto-open the panel on activation
-  GoodPromptsPanel.createOrShow(context.extensionUri, context);
 }
 
 export function deactivate(): void {
