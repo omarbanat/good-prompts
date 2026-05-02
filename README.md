@@ -12,13 +12,28 @@ GoodPrompts sits between you and your AI coding assistant. Fill in a structured 
 - **4 model-specific prompt templates** — the same task produces a different, optimized prompt for each AI tool
 - **Real-time quality scorer** — 0–100 score across Clarity, Context, Scope, and Expected Output, computed locally with no API call
 - **Auto-detection** — active file, language, project name, and target AI tool detected passively from your workspace
-- **Context injection** — attach code snippet, git diff, terminal error, or test file with one checkbox each
+- **Context injection** — attach code snippet (with line range), git diff, terminal error, or test file with one checkbox each
+- **MCP integration** — connect to MCP servers, browse resources, and invoke tools; selected items are injected into the generated prompt
 - **Personal prompt library** — save and reuse prompts across sessions
-- **Fully offline** — the form, scorer, and prompt generator all work without network access
+- **Fully offline** — the form, scorer, and prompt generator all work without network access (MCP connections are optional)
 
 ---
 
 ## Installation
+
+### From VSIX (recommended)
+
+Download the latest `.vsix` from the [releases page](https://github.com/omarbanat/good-prompts/releases), then install it in VS Code:
+
+```
+Extensions: Install from VSIX...
+```
+
+Or from the terminal:
+
+```bash
+code --install-extension goodprompts-0.3.0.vsix
+```
 
 ### From source (development)
 
@@ -186,10 +201,12 @@ Numbered steps. Constraints stated twice. Explicit `Keep your response under 500
 ```
 VS Code Extension
 ├── Extension Host (Node.js)          src/extension/
-│   ├── extension.ts                  Registers command, activates panel
+│   ├── extension.ts                  Registers command and sidebar view provider
 │   ├── GoodPromptsPanel.ts           WebviewPanel lifecycle + message routing
+│   ├── GoodPromptsViewProvider.ts    Sidebar view provider (secondary sidebar)
+│   ├── mcpManager.ts                 MCP server connection management
 │   ├── autoDetect.ts                 Detects installed extensions + workspace file signals
-│   ├── contextCapture.ts             Captures code snippet, git diff, test file
+│   ├── contextCapture.ts             Captures code snippet (with line range), git diff, test file
 │   └── settingsManager.ts            Persists settings + library via globalState
 │
 ├── Shared Types                       src/shared/types.ts
@@ -199,7 +216,7 @@ VS Code Extension
     ├── hooks/useVSCode.ts             acquireVsCodeApi() wrapper
     ├── utils/promptGenerator.ts       16 model×task templates (pure function)
     ├── utils/scorer.ts                0–100 scorer (pure function, no API)
-    └── components/                    10 React components, VS Code CSS variables
+    └── components/                    11 React components, VS Code CSS variables
 ```
 
 ### Extension host ↔ Webview communication
@@ -283,6 +300,8 @@ good-prompts/
 │   ├── extension/
 │   │   ├── extension.ts
 │   │   ├── GoodPromptsPanel.ts
+│   │   ├── GoodPromptsViewProvider.ts
+│   │   ├── mcpManager.ts
 │   │   ├── autoDetect.ts
 │   │   ├── contextCapture.ts
 │   │   └── settingsManager.ts
@@ -300,6 +319,7 @@ good-prompts/
 │           ├── TargetToolSelector.tsx
 │           ├── GlobalSettings.tsx
 │           ├── ContextSection.tsx
+│           ├── MCPSection.tsx
 │           ├── BugFixForm.tsx
 │           ├── FeatureForm.tsx
 │           ├── RefactorForm.tsx
@@ -320,3 +340,11 @@ good-prompts/
 
 - VS Code 1.85 or later
 - Node.js 18 LTS or later (for building)
+
+---
+
+## Support
+
+If GoodPrompts saves you time, consider buying me a coffee:
+
+[![Buy Me a Coffee](https://img.shields.io/badge/Buy%20Me%20a%20Coffee-support-yellow?logo=buy-me-a-coffee)](https://buymeacoffee.com/omarbanat)

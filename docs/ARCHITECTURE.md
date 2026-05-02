@@ -33,14 +33,16 @@ The extension host has access to all VS Code APIs. The webview is an isolated br
 
 ```
 src/
-├── shared/types.ts          Single source of truth for all types
-├── extension/               Node.js — has access to vscode module
+├── shared/types.ts               Single source of truth for all types
+├── extension/                    Node.js — has access to vscode module
 │   ├── extension.ts
 │   ├── GoodPromptsPanel.ts
+│   ├── GoodPromptsViewProvider.ts
+│   ├── mcpManager.ts
 │   ├── autoDetect.ts
 │   ├── contextCapture.ts
 │   └── settingsManager.ts
-└── webview/                 Browser — no access to vscode module
+└── webview/                      Browser — no access to vscode module
     ├── index.tsx
     ├── App.tsx
     ├── hooks/useVSCode.ts
@@ -99,7 +101,12 @@ Two separate configs exist because the extension host and webview have different
 
 Entry point. VS Code calls `activate(context)` on load:
 - Registers the `goodPrompts.open` command
+- Registers `GoodPromptsViewProvider` as the sidebar view for the secondary sidebar
 - Calls `GoodPromptsPanel.createOrShow` on activation so the panel opens automatically
+
+### `GoodPromptsViewProvider.ts`
+
+Implements `vscode.WebviewViewProvider` for the secondary sidebar. Manages the sidebar webview lifecycle independently of the floating panel, handling the same message protocol as `GoodPromptsPanel`.
 
 ### `GoodPromptsPanel.ts`
 
@@ -143,11 +150,20 @@ Returns `null` if none match (webview falls back to `globalSettings.defaultTool`
 
 **Graceful degradation**: All workspace API calls are guarded. Missing workspace, no active editor, or failed filesystem checks all return empty strings rather than throwing.
 
+### `mcpManager.ts`
+
+Manages connections to MCP (Model Context Protocol) servers. Exposes methods to:
+- Connect to / disconnect from a configured server
+- List available resources and tools on a connected server
+- Invoke a tool and return the result as a string
+
+Connections are held in memory for the extension's lifetime. Errors are surfaced as `error` messages to the webview.
+
 ### `contextCapture.ts`
 
 Four async capture functions, all fail-safe:
 
-**`captureCodeSnippet()`**: Returns selected text if a selection exists. Otherwise returns the visible range of the active editor, capped at 100 lines.
+**`captureCodeSnippet()`**: Returns selected text if a selection exists, along with the start/end line numbers as `codeSnippetLineRange`. Otherwise returns the visible range of the active editor, capped at 100 lines.
 
 **`captureGitDiff()`**: Spawns `git diff HEAD` via `child_process.exec`. Limits output to 200 lines. Returns empty string if git is unavailable or the command fails.
 
@@ -238,10 +254,11 @@ Suggestions are appended to the result for any dimension scoring below 15 out of
 ```
 App
 ├── (header)                  Inline — title + settings gear button
-├── GlobalSettings            Modal — shown when showSettings=true
+├── GlobalSettings            Modal — shown when showSettings=true (includes MCP server config)
 ├── TaskTypeSelector          4-button tab bar
 ├── TargetToolSelector        5-button group + auto-detected badge
-├── ContextSection            Detected context display + attachment checkboxes
+├── ContextSection            Detected context display + attachment checkboxes + line range
+├── MCPSection                Connected servers, resource browser, tool invoker
 ├── (task form section)
 │   ├── BugFixForm            4 fields
 │   ├── FeatureForm           6 fields + assembled user story preview

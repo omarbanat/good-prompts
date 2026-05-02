@@ -78,3 +78,11 @@ vsce package
 ```
 
 This produces a `.vsix` file that can be installed via **Extensions: Install from VSIX** in VS Code.
+
+---
+
+## Support
+
+If you find this project useful, consider supporting its development:
+
+[buymeacoffee.com/omarbanat](https://buymeacoffee.com/omarbanat)
