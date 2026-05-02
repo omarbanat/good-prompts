@@ -93,6 +93,7 @@ export async function detectContext(
     language,
     projectName,
     codeSnippet: '',
+    codeSnippetLineRange: '',
     terminalError: '',
     gitDiff: '',
     testFile: ''

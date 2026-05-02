@@ -9,7 +9,7 @@
     "url": "https://github.com/omarbanat/good-prompts"
   },
   "license": "MIT",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "engines": {
     "vscode": "^1.85.0"
   },
@@ -64,11 +64,12 @@
     "publish": "vsce publish"
   },
   "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "react": "^18.2.0",
     "react-dom": "^18.2.0"
   },
   "devDependencies": {
-    "@types/node": "18.x",
+    "@types/node": "^18.19.130",
     "@types/react": "^18.2.0",
     "@types/react-dom": "^18.2.0",
     "@types/vscode": "^1.85.0",

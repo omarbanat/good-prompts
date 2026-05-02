@@ -7,7 +7,9 @@ import {
   BugFixFields,
   FeatureFields,
   RefactorFields,
-  CodeReviewFields
+  CodeReviewFields,
+  OutputOptions,
+  MCPAttachedItem
 } from '../../shared/types';
 
 export interface GeneratePromptParams {
@@ -16,6 +18,8 @@ export interface GeneratePromptParams {
   globalSettings: GlobalSettings;
   contextData: ContextData;
   contextAttachments: ContextAttachments;
+  outputOptions: OutputOptions;
+  mcpItems: MCPAttachedItem[];
   bugFixFields: BugFixFields;
   featureFields: FeatureFields;
   refactorFields: RefactorFields;
@@ -24,20 +28,15 @@ export interface GeneratePromptParams {
 
 function buildContextBlock(
   contextData: ContextData,
-  contextAttachments: ContextAttachments
+  contextAttachments: ContextAttachments,
+  mcpItems: MCPAttachedItem[]
 ): string {
   const parts: string[] = [];
 
-  if (contextAttachments.codeSnippet && contextData.codeSnippet) {
-    let snippet = contextData.codeSnippet;
-    const range = contextAttachments.codeSnippetLineRange.trim();
-    const rangeMatch = range.match(/^(\d+)\s*-\s*(\d+)$/);
-    if (rangeMatch) {
-      const start = Math.max(0, parseInt(rangeMatch[1], 10) - 1);
-      const end = parseInt(rangeMatch[2], 10);
-      snippet = snippet.split('\n').slice(start, end).join('\n');
-    }
-    parts.push(`\`\`\`\n${snippet}\n\`\`\``);
+  if (contextData.codeSnippet) {
+    const range = contextData.codeSnippetLineRange;
+    const header = range ? `\`\`\`\n// Lines ${range}\n` : '```\n';
+    parts.push(`${header}${contextData.codeSnippet}\n\`\`\``);
   }
 
   if (contextAttachments.terminalError && contextData.terminalError) {
@@ -52,11 +51,15 @@ function buildContextBlock(
     parts.push(`Test file:\n\`\`\`\n${contextData.testFile}\n\`\`\``);
   }
 
+  for (const item of mcpItems) {
+    parts.push(`${item.label}:\n${item.content}`);
+  }
+
   return parts.join('\n\n');
 }
 
 function generateClaudeCodePrompt(params: GeneratePromptParams): string {
-  const { taskType, contextData, contextAttachments, globalSettings, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
+  const { taskType, contextData, contextAttachments, globalSettings, outputOptions, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
   const fileRef = contextData.activeFile ? `\`${contextData.activeFile}\`` : 'the active file';
 
   switch (taskType) {
@@ -72,13 +75,13 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (bugFixFields.actualBehavior) {
         lines.push(`\nActual behavior: ${bugFixFields.actualBehavior}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments);
+      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (bugFixFields.constraints) {
         lines.push(`\nConstraints: ${bugFixFields.constraints}`);
       }
-      lines.push('\nDo not modify any other files.');
-      lines.push('Return only the modified code with inline comments.');
+      if (outputOptions.scopeToFile) { lines.push('\nDo not modify any other files.'); }
+      if (outputOptions.codeOnly) { lines.push('Return only the modified code with inline comments.'); }
       return lines.join('\n');
     }
 
@@ -97,11 +100,11 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (featureFields.dependencies) {
         lines.push(`\nDependencies / constraints:\n${featureFields.dependencies}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments);
+      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       lines.push(`\nImplement this in ${fileRef}.`);
-      lines.push('Do not modify any other files.');
-      lines.push('Return only the modified code with inline comments.');
+      if (outputOptions.scopeToFile) { lines.push('Do not modify any other files.'); }
+      if (outputOptions.codeOnly) { lines.push('Return only the modified code with inline comments.'); }
       return lines.join('\n');
     }
 
@@ -114,7 +117,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (refactorFields.refactorGoal) {
         lines.push(`\nRefactor goal: ${refactorFields.refactorGoal}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments);
+      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (refactorFields.constraints) {
         lines.push(`\nConstraints: ${refactorFields.constraints}`);
@@ -122,8 +125,8 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (refactorFields.targetOutputFormat) {
         lines.push(`\nOutput format: ${refactorFields.targetOutputFormat}`);
       }
-      lines.push('\nDo not modify any other files.');
-      lines.push('Return only the refactored code with inline comments.');
+      if (outputOptions.scopeToFile) { lines.push('\nDo not modify any other files.'); }
+      if (outputOptions.codeOnly) { lines.push('Return only the refactored code with inline comments.'); }
       return lines.join('\n');
     }
 
@@ -138,7 +141,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       }
       const depth = codeReviewFields.reviewDepth === 'thorough' ? 'thorough review' : 'quick scan';
       lines.push(`\nReview depth: ${depth}`);
-      const ctx = buildContextBlock(contextData, contextAttachments);
+      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (globalSettings.language) {
         lines.push(`\nLanguage: ${globalSettings.language}`);
@@ -150,14 +153,14 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
 }
 
 function generateCopilotPrompt(params: GeneratePromptParams): string {
-  const { taskType, globalSettings, contextData, contextAttachments, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
+  const { taskType, globalSettings, contextData, contextAttachments, outputOptions, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
   const lang = globalSettings.language || contextData.language || 'the given language';
   const framework = globalSettings.framework ? ` working on a ${globalSettings.framework} application` : '';
 
   const lines: string[] = [];
   lines.push(`You are a senior ${lang} engineer${framework}.`);
 
-  const ctx = buildContextBlock(contextData, contextAttachments);
+  const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
   if (ctx) { lines.push(`\n${ctx}`); }
 
   switch (taskType) {
@@ -191,13 +194,14 @@ function generateCopilotPrompt(params: GeneratePromptParams): string {
     }
   }
 
-  lines.push('\nProvide only the corrected code block.');
+  if (outputOptions.scopeToFile) { lines.push('\nModify only the current file.'); }
+  if (outputOptions.codeOnly) { lines.push('Provide only the corrected code block.'); }
   return lines.join('\n');
 }
 
 
 function generateChatGPTPrompt(params: GeneratePromptParams): string {
-  const { taskType, globalSettings, contextData, contextAttachments, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
+  const { taskType, globalSettings, contextData, contextAttachments, outputOptions, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
 
   const lines: string[] = [];
 
@@ -210,7 +214,7 @@ function generateChatGPTPrompt(params: GeneratePromptParams): string {
   }
   if (globalSettings.framework) { lines.push(`Framework: ${globalSettings.framework}`); }
 
-  const ctx = buildContextBlock(contextData, contextAttachments);
+  const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
   if (ctx) {
     lines.push('\n## Code');
     lines.push(ctx);
@@ -282,23 +286,26 @@ function generateChatGPTPrompt(params: GeneratePromptParams): string {
   if (taskType === 'code-review') {
     lines.push('Return a structured review with findings, severity levels (critical/major/minor), and suggested fixes.');
   } else if (taskType === 'refactor') {
-    const fmt = refactorFields.targetOutputFormat || 'Return the refactored code with comments explaining changes.';
-    lines.push(fmt);
+    const fmt = refactorFields.targetOutputFormat || (outputOptions.codeOnly ? 'Return only the refactored code with comments explaining changes.' : '');
+    if (fmt) { lines.push(fmt); }
   } else {
-    lines.push('Return only the modified code with inline comments explaining each change.');
+    if (outputOptions.codeOnly) { lines.push('Return only the modified code with inline comments explaining each change.'); }
+  }
+  if (taskType !== 'code-review' && outputOptions.scopeToFile) {
+    lines.push('Do not modify any other files.');
   }
 
   return lines.join('\n');
 }
 
 function generateGeminiPrompt(params: GeneratePromptParams): string {
-  const { taskType, globalSettings, contextData, contextAttachments, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
+  const { taskType, globalSettings, contextData, contextAttachments, outputOptions, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
 
   const lines: string[] = [];
   lines.push('Please follow these steps exactly:');
   lines.push('');
 
-  const ctx = buildContextBlock(contextData, contextAttachments);
+  const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
 
   switch (taskType) {
     case 'bug-fix': {
@@ -315,8 +322,8 @@ function generateGeminiPrompt(params: GeneratePromptParams): string {
         lines.push(`5. Constraints: ${bugFixFields.constraints}`);
         lines.push(`   Remember: ${bugFixFields.constraints}`);
       }
-      lines.push('6. Fix only the bug. Do not refactor or change anything else.');
-      lines.push('7. Return the modified code only. Keep your response under 500 lines.');
+      if (outputOptions.scopeToFile) { lines.push('6. Fix only the bug. Do not refactor or change anything else.'); }
+      if (outputOptions.codeOnly) { lines.push('7. Return the modified code only. Keep your response under 500 lines.'); }
       break;
     }
     case 'feature': {
@@ -335,8 +342,8 @@ function generateGeminiPrompt(params: GeneratePromptParams): string {
       if (featureFields.dependencies) {
         lines.push(`4. Dependencies: ${featureFields.dependencies}`);
       }
-      lines.push('5. Implement only what is described in the acceptance criteria.');
-      lines.push('6. Return the modified code only. Keep your response under 500 lines.');
+      if (outputOptions.scopeToFile) { lines.push('5. Implement only what is described in the acceptance criteria.'); }
+      if (outputOptions.codeOnly) { lines.push('6. Return the modified code only. Keep your response under 500 lines.'); }
       break;
     }
     case 'refactor': {
@@ -352,10 +359,10 @@ function generateGeminiPrompt(params: GeneratePromptParams): string {
         lines.push(`4. Constraints: ${refactorFields.constraints}`);
         lines.push(`   Remember: ${refactorFields.constraints}`);
       }
-      lines.push('5. Apply refactoring changes only. Do not add new features.');
+      if (outputOptions.scopeToFile) { lines.push('5. Apply refactoring changes only. Do not add new features.'); }
       if (refactorFields.targetOutputFormat) {
         lines.push(`6. Output format: ${refactorFields.targetOutputFormat}`);
-      } else {
+      } else if (outputOptions.codeOnly) {
         lines.push('6. Return the refactored code with comments. Keep your response under 500 lines.');
       }
       break;

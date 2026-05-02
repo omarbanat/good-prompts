@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { SettingsManager } from './settingsManager';
+import { MCPManager } from './mcpManager';
 import { detectContext } from './autoDetect';
 import { captureCodeSnippet, captureGitDiff, captureTerminalError, captureTestFile } from './contextCapture';
 import { ContextData, ExtensionMessage, WebviewMessage } from '../shared/types';
@@ -18,12 +19,14 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private readonly _settingsManager: SettingsManager;
+  private readonly _mcpManager: MCPManager;
 
   constructor(
     private readonly _extensionUri: vscode.Uri,
     private readonly _context: vscode.ExtensionContext
   ) {
     this._settingsManager = new SettingsManager(_context);
+    this._mcpManager = new MCPManager();
   }
 
   public resolveWebviewView(
@@ -43,6 +46,25 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
     webviewView.webview.onDidReceiveMessage(async (message: WebviewMessage) => {
       await this._handleMessage(message, webviewView.webview);
     });
+
+    const editorListener = vscode.window.onDidChangeActiveTextEditor(() => {
+      this._sendContextUpdate(webviewView.webview);
+    });
+
+    let selectionTimer: ReturnType<typeof setTimeout> | undefined;
+    const selectionListener = vscode.window.onDidChangeTextEditorSelection(() => {
+      clearTimeout(selectionTimer);
+      selectionTimer = setTimeout(() => {
+        this._sendContextUpdate(webviewView.webview);
+      }, 300);
+    });
+
+    webviewView.onDidDispose(() => {
+      editorListener.dispose();
+      selectionListener.dispose();
+      clearTimeout(selectionTimer);
+      this._mcpManager.dispose().catch(() => {});
+    });
   }
 
   private async _handleMessage(message: WebviewMessage, webview: vscode.Webview): Promise<void> {
@@ -59,16 +81,19 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
         webview.postMessage(initMsg);
         break;
       }
+
       case 'saveSettings': {
         await this._settingsManager.saveSettings(message.payload);
         break;
       }
+
       case 'copyPrompt': {
         await vscode.env.clipboard.writeText(message.payload);
         const copiedMsg: ExtensionMessage = { type: 'promptCopied' };
         webview.postMessage(copiedMsg);
         break;
       }
+
       case 'saveToLibrary': {
         const { prompt, taskType, targetTool, title, score } = message.payload;
         const item = {
@@ -85,21 +110,72 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
         webview.postMessage(savedMsg);
         break;
       }
+      case 'deleteFromLibrary': {
+        await this._settingsManager.deletePromptFromLibrary(message.payload);
+        break;
+      }
       case 'refreshContext': {
         await this._sendContextUpdate(webview);
+        break;
+      }
+
+      case 'browseMCPServer': {
+        const { serverId } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const { resources, tools } = await this._mcpManager.browse(config);
+          const msg: ExtensionMessage = { type: 'mcpServerBrowsed', payload: { serverId, resources, tools } };
+          webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          webview.postMessage(msg);
+        }
+        break;
+      }
+
+      case 'fetchMCPResource': {
+        const { serverId, uri, label } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const content = await this._mcpManager.readResource(config, uri);
+          const item = { id: `${serverId}-${Date.now()}`, serverName: config.name, label, content };
+          const msg: ExtensionMessage = { type: 'mcpContentFetched', payload: item };
+          webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          webview.postMessage(msg);
+        }
+        break;
+      }
+
+      case 'callMCPTool': {
+        const { serverId, toolName, args, label } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const content = await this._mcpManager.callTool(config, toolName, args);
+          const item = { id: `${serverId}-${Date.now()}`, serverName: config.name, label, content };
+          const msg: ExtensionMessage = { type: 'mcpContentFetched', payload: item };
+          webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          webview.postMessage(msg);
+        }
         break;
       }
     }
   }
 
   private async _enrichContext(context: ContextData): Promise<ContextData> {
-    const [codeSnippet, gitDiff, terminalError, testFile] = await Promise.all([
+    const [snippet, gitDiff, terminalError, testFile] = await Promise.all([
       captureCodeSnippet(),
       captureGitDiff(),
       captureTerminalError(),
       captureTestFile(context.activeFilePath)
     ]);
-    return { ...context, codeSnippet, gitDiff, terminalError, testFile };
+    return { ...context, codeSnippet: snippet.text, codeSnippetLineRange: snippet.lineRange, gitDiff, terminalError, testFile };
   }
 
   private async _sendContextUpdate(webview: vscode.Webview): Promise<void> {

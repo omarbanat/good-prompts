@@ -97,7 +97,7 @@ export function computeScore(params: ScorerParams): QualityScore {
 
   // +5 if any attachment is enabled
   const anyAttachment =
-    contextAttachments.codeSnippet ||
+    !!contextData.codeSnippet ||
     contextAttachments.terminalError ||
     contextAttachments.gitDiff ||
     contextAttachments.testFile;

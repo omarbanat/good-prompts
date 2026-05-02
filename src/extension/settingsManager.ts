@@ -9,7 +9,8 @@ const DEFAULT_SETTINGS: GlobalSettings = {
   runtime: '',
   framework: '',
   styleGuide: '',
-  defaultTool: 'claude-code'
+  defaultTool: 'claude-code',
+  mcpServers: []
 };
 
 export class SettingsManager {
@@ -34,8 +35,12 @@ export class SettingsManager {
   async savePromptToLibrary(item: LibraryPrompt): Promise<void> {
     const library = this.getLibrary();
     library.unshift(item);
-    // Keep at most 100 saved prompts
     const trimmed = library.slice(0, 100);
     await this.context.globalState.update(LIBRARY_KEY, trimmed);
+  }
+
+  async deletePromptFromLibrary(id: string): Promise<void> {
+    const library = this.getLibrary().filter(item => item.id !== id);
+    await this.context.globalState.update(LIBRARY_KEY, library);
   }
 }

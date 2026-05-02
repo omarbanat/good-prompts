@@ -9,7 +9,9 @@ import {
   FeatureFields,
   RefactorFields,
   CodeReviewFields,
+  OutputOptions,
   LibraryPrompt,
+  MCPAttachedItem,
   ExtensionMessage,
 } from "../shared/types";
 
@@ -17,6 +19,7 @@ import { TaskTypeSelector } from "./components/TaskTypeSelector";
 import { TargetToolSelector } from "./components/TargetToolSelector";
 import { GlobalSettings as GlobalSettingsComponent } from "./components/GlobalSettings";
 import { ContextSection } from "./components/ContextSection";
+import { MCPSection, ServerBrowseState } from "./components/MCPSection";
 import { BugFixForm } from "./components/BugFixForm";
 import { FeatureForm } from "./components/FeatureForm";
 import { RefactorForm } from "./components/RefactorForm";
@@ -26,6 +29,7 @@ import { PromptPreview } from "./components/PromptPreview";
 import { ActionButtons } from "./components/ActionButtons";
 import { generatePrompt } from "./utils/promptGenerator";
 import { computeScore } from "./utils/scorer";
+import { postMessage } from "./hooks/useVSCode";
 
 const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   language: "",
@@ -33,6 +37,7 @@ const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
   framework: "",
   styleGuide: "",
   defaultTool: "claude-code",
+  mcpServers: [],
 };
 
 const DEFAULT_CONTEXT_DATA: ContextData = {
@@ -41,14 +46,13 @@ const DEFAULT_CONTEXT_DATA: ContextData = {
   language: "",
   projectName: "",
   codeSnippet: "",
+  codeSnippetLineRange: "",
   terminalError: "",
   gitDiff: "",
   testFile: "",
 };
 
 const DEFAULT_CONTEXT_ATTACHMENTS: ContextAttachments = {
-  codeSnippet: false,
-  codeSnippetLineRange: "",
   terminalError: false,
   gitDiff: false,
   testFile: false,
@@ -87,36 +91,28 @@ export const App: React.FC = () => {
   const [taskType, setTaskType] = useState<TaskType>("bug-fix");
   const [targetTool, setTargetTool] = useState<TargetTool>("claude-code");
   const [toolAutoDetected, setToolAutoDetected] = useState(false);
-  const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(
-    DEFAULT_GLOBAL_SETTINGS,
-  );
-  const [contextData, setContextData] =
-    useState<ContextData>(DEFAULT_CONTEXT_DATA);
-  const [contextAttachments, setContextAttachments] =
-    useState<ContextAttachments>(DEFAULT_CONTEXT_ATTACHMENTS);
-  const [bugFixFields, setBugFixFields] =
-    useState<BugFixFields>(DEFAULT_BUG_FIX);
-  const [featureFields, setFeatureFields] =
-    useState<FeatureFields>(DEFAULT_FEATURE);
-  const [refactorFields, setRefactorFields] =
-    useState<RefactorFields>(DEFAULT_REFACTOR);
-  const [codeReviewFields, setCodeReviewFields] =
-    useState<CodeReviewFields>(DEFAULT_CODE_REVIEW);
+  const [globalSettings, setGlobalSettings] = useState<GlobalSettings>(DEFAULT_GLOBAL_SETTINGS);
+  const [contextData, setContextData] = useState<ContextData>(DEFAULT_CONTEXT_DATA);
+  const [contextAttachments, setContextAttachments] = useState<ContextAttachments>(DEFAULT_CONTEXT_ATTACHMENTS);
+  const [bugFixFields, setBugFixFields] = useState<BugFixFields>(DEFAULT_BUG_FIX);
+  const [featureFields, setFeatureFields] = useState<FeatureFields>(DEFAULT_FEATURE);
+  const [refactorFields, setRefactorFields] = useState<RefactorFields>(DEFAULT_REFACTOR);
+  const [codeReviewFields, setCodeReviewFields] = useState<CodeReviewFields>(DEFAULT_CODE_REVIEW);
+  const [outputOptions, setOutputOptions] = useState<OutputOptions>({ scopeToFile: true, codeOnly: true });
   const [library, setLibrary] = useState<LibraryPrompt[]>([]);
+  const [selectedLibraryItem, setSelectedLibraryItem] = useState<LibraryPrompt | null>(null);
   const [showSettings, setShowSettings] = useState(false);
 
-  // Listen for messages from the extension host
+  // MCP state
+  const [mcpItems, setMCPItems] = useState<MCPAttachedItem[]>([]);
+  const [serverBrowseState, setServerBrowseState] = useState<Record<string, ServerBrowseState>>({});
+
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       const message = event.data as ExtensionMessage;
       switch (message.type) {
         case "init": {
-          const {
-            settings,
-            context,
-            library: lib,
-            detectedTool,
-          } = message.payload;
+          const { settings, context, library: lib, detectedTool } = message.payload;
           setGlobalSettings(settings);
           setContextData(context);
           setLibrary(lib);
@@ -137,6 +133,26 @@ export const App: React.FC = () => {
           setLibrary((prev) => [message.payload, ...prev]);
           break;
         }
+        case "mcpServerBrowsed": {
+          const { serverId, resources, tools } = message.payload;
+          setServerBrowseState(prev => ({
+            ...prev,
+            [serverId]: { loading: false, resources, tools }
+          }));
+          break;
+        }
+        case "mcpContentFetched": {
+          setMCPItems(prev => [...prev, message.payload]);
+          break;
+        }
+        case "mcpError": {
+          const { serverId, message: errMsg } = message.payload;
+          setServerBrowseState(prev => ({
+            ...prev,
+            [serverId]: { loading: false, error: errMsg, resources: [], tools: [] }
+          }));
+          break;
+        }
         case "promptCopied":
         case "error":
           break;
@@ -154,6 +170,8 @@ export const App: React.FC = () => {
       globalSettings,
       contextData,
       contextAttachments,
+      outputOptions,
+      mcpItems,
       bugFixFields,
       featureFields,
       refactorFields,
@@ -165,11 +183,15 @@ export const App: React.FC = () => {
     globalSettings,
     contextData,
     contextAttachments,
+    outputOptions,
+    mcpItems,
     bugFixFields,
     featureFields,
     refactorFields,
     codeReviewFields,
   ]);
+
+  const displayPrompt = selectedLibraryItem?.prompt ?? generatedPrompt;
 
   const qualityScore = useMemo(() => {
     return computeScore({
@@ -195,23 +217,13 @@ export const App: React.FC = () => {
     codeReviewFields,
   ]);
 
-  const handleAttachmentChange = (
-    key: keyof ContextAttachments,
-    value: boolean,
-  ) => {
+  const handleAttachmentChange = (key: keyof ContextAttachments, value: boolean) => {
     setContextAttachments((prev) => ({ ...prev, [key]: value }));
-  };
-
-  const handleLineRangeChange = (value: string) => {
-    setContextAttachments((prev) => ({ ...prev, codeSnippetLineRange: value }));
   };
 
   const handleTerminalErrorChange = (value: string) => {
     setContextData((prev) => ({ ...prev, terminalError: value }));
-    setContextAttachments((prev) => ({
-      ...prev,
-      terminalError: value.length > 0,
-    }));
+    setContextAttachments((prev) => ({ ...prev, terminalError: value.length > 0 }));
   };
 
   const handleReset = () => {
@@ -220,11 +232,20 @@ export const App: React.FC = () => {
     setRefactorFields(DEFAULT_REFACTOR);
     setCodeReviewFields(DEFAULT_CODE_REVIEW);
     setContextAttachments(DEFAULT_CONTEXT_ATTACHMENTS);
+    setMCPItems([]);
   };
 
   const handleToolChange = (tool: TargetTool) => {
     setTargetTool(tool);
     setToolAutoDetected(false);
+  };
+
+  const handleBrowseMCPServer = (serverId: string) => {
+    setServerBrowseState(prev => ({
+      ...prev,
+      [serverId]: { loading: true, resources: [], tools: [] }
+    }));
+    postMessage({ type: 'browseMCPServer', payload: { serverId } });
   };
 
   const sectionStyle: React.CSSProperties = {
@@ -247,46 +268,23 @@ export const App: React.FC = () => {
           />
         );
       case "feature":
-        return (
-          <FeatureForm fields={featureFields} onChange={setFeatureFields} />
-        );
+        return <FeatureForm fields={featureFields} onChange={setFeatureFields} />;
       case "refactor":
-        return (
-          <RefactorForm fields={refactorFields} onChange={setRefactorFields} />
-        );
+        return <RefactorForm fields={refactorFields} onChange={setRefactorFields} />;
       case "code-review":
-        return (
-          <CodeReviewForm
-            fields={codeReviewFields}
-            onChange={setCodeReviewFields}
-          />
-        );
+        return <CodeReviewForm fields={codeReviewFields} onChange={setCodeReviewFields} />;
     }
   };
 
   return (
-    <div
-      style={{
-        padding: "12px 14px",
-        maxWidth: 600,
-        margin: "0 auto",
-      }}
-    >
+    <div style={{ padding: "12px 14px", maxWidth: 600, margin: "0 auto" }}>
       {/* Header */}
-      <div
-        style={{
-          display: "flex",
-          justifyContent: "space-between",
-          alignItems: "center",
-          marginBottom: 16,
-          paddingBottom: 10,
-          borderBottom: "1px solid var(--vscode-panel-border)",
-        }}
-      >
+      <div style={{
+        display: "flex", justifyContent: "space-between", alignItems: "center",
+        marginBottom: 16, paddingBottom: 10, borderBottom: "1px solid var(--vscode-panel-border)",
+      }}>
         <div>
-          <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>
-            GoodPrompts
-          </h1>
+          <h1 style={{ fontSize: 16, fontWeight: 700, margin: 0 }}>GoodPrompts</h1>
           <div style={{ fontSize: 11, opacity: 0.55, marginTop: 1 }}>
             Better prompts for AI coding assistants
           </div>
@@ -295,19 +293,10 @@ export const App: React.FC = () => {
           onClick={() => setShowSettings((s) => !s)}
           title={showSettings ? "Hide settings" : "Settings"}
           style={{
-            backgroundColor: showSettings
-              ? "var(--vscode-button-background)"
-              : "transparent",
-            color: showSettings
-              ? "var(--vscode-button-foreground)"
-              : "var(--vscode-editor-foreground)",
-            border:
-              "1px solid var(--vscode-input-border, rgba(255,255,255,0.2))",
-            borderRadius: 4,
-            padding: "4px 10px",
-            fontSize: 16,
-            lineHeight: 1,
-            cursor: "pointer",
+            backgroundColor: showSettings ? "var(--vscode-button-background)" : "transparent",
+            color: showSettings ? "var(--vscode-button-foreground)" : "var(--vscode-editor-foreground)",
+            border: "1px solid var(--vscode-input-border, rgba(255,255,255,0.2))",
+            borderRadius: 4, padding: "4px 10px", fontSize: 16, lineHeight: 1, cursor: "pointer",
           }}
         >
           ⚙
@@ -341,21 +330,22 @@ export const App: React.FC = () => {
             contextData={contextData}
             contextAttachments={contextAttachments}
             onAttachmentChange={handleAttachmentChange}
-            onLineRangeChange={handleLineRangeChange}
             onTerminalErrorChange={handleTerminalErrorChange}
           />
 
+          <MCPSection
+            servers={globalSettings.mcpServers}
+            mcpItems={mcpItems}
+            browseState={serverBrowseState}
+            onBrowse={handleBrowseMCPServer}
+            onRemoveItem={(id) => setMCPItems(prev => prev.filter(i => i.id !== id))}
+          />
+
           <div style={sectionStyle}>
-            <div
-              style={{
-                fontSize: 12,
-                fontWeight: 600,
-                textTransform: "uppercase",
-                letterSpacing: "0.05em",
-                opacity: 0.75,
-                marginBottom: 12,
-              }}
-            >
+            <div style={{
+              fontSize: 12, fontWeight: 600, textTransform: "uppercase",
+              letterSpacing: "0.05em", opacity: 0.75, marginBottom: 12,
+            }}>
               {taskType === "bug-fix" && "Bug Fix Details"}
               {taskType === "feature" && "Feature Details"}
               {taskType === "refactor" && "Refactor Details"}
@@ -366,10 +356,52 @@ export const App: React.FC = () => {
 
           <QualityScorer score={qualityScore} />
 
-          <PromptPreview prompt={generatedPrompt} contextData={contextData} />
+          <PromptPreview prompt={displayPrompt} contextData={contextData} />
+
+          <div style={{ display: 'flex', gap: 16, marginBottom: 12, flexWrap: 'wrap' }}>
+            {taskType !== 'code-review' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={outputOptions.scopeToFile}
+                  onChange={e => setOutputOptions(prev => ({ ...prev, scopeToFile: e.target.checked }))}
+                  style={{ width: 'auto', cursor: 'pointer' }}
+                />
+                Limit to this file
+              </label>
+            )}
+            {taskType !== 'code-review' && (
+              <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12, cursor: 'pointer' }}>
+                <input
+                  type="checkbox"
+                  checked={outputOptions.codeOnly}
+                  onChange={e => setOutputOptions(prev => ({ ...prev, codeOnly: e.target.checked }))}
+                  style={{ width: 'auto', cursor: 'pointer' }}
+                />
+                Code only
+              </label>
+            )}
+          </div>
+
+          {selectedLibraryItem && (
+            <div style={{
+              display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+              padding: '6px 10px', marginBottom: 8, borderRadius: 4,
+              backgroundColor: 'var(--vscode-input-background)',
+              border: '1px solid var(--vscode-button-background)', fontSize: 11
+            }}>
+              <span style={{ opacity: 0.8 }}>Viewing: <strong>{selectedLibraryItem.title}</strong></span>
+              <button
+                onClick={() => setSelectedLibraryItem(null)}
+                style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, opacity: 0.6, padding: '0 2px' }}
+              >
+                ✕ Back to form
+              </button>
+            </div>
+          )}
 
           <ActionButtons
-            prompt={generatedPrompt}
+            prompt={displayPrompt}
             taskType={taskType}
             targetTool={targetTool}
             score={qualityScore.total}
@@ -377,64 +409,52 @@ export const App: React.FC = () => {
           />
 
           {library.length > 0 && (
-            <div
-              style={{
-                marginBottom: 16,
-                padding: 12,
-                backgroundColor: "var(--vscode-sideBar-background)",
-                border: "1px solid var(--vscode-panel-border)",
-                borderRadius: 6,
-              }}
-            >
-              <div
-                style={{
-                  fontSize: 12,
-                  fontWeight: 600,
-                  textTransform: "uppercase",
-                  letterSpacing: "0.05em",
-                  opacity: 0.75,
-                  marginBottom: 8,
-                }}
-              >
+            <div style={{
+              marginBottom: 16, padding: 12,
+              backgroundColor: 'var(--vscode-sideBar-background)',
+              border: '1px solid var(--vscode-panel-border)', borderRadius: 6,
+            }}>
+              <div style={{ fontSize: 12, fontWeight: 600, textTransform: 'uppercase', letterSpacing: '0.05em', opacity: 0.75, marginBottom: 8 }}>
                 Saved Prompts ({library.length})
               </div>
-              {library.slice(0, 5).map((item) => (
-                <div
-                  key={item.id}
-                  style={{
-                    padding: "6px 8px",
-                    marginBottom: 4,
-                    backgroundColor: "var(--vscode-input-background)",
-                    borderRadius: 3,
-                    cursor: "default",
-                    borderLeft: "3px solid var(--vscode-button-background)",
-                  }}
-                >
+              {library.map((item) => {
+                const isSelected = selectedLibraryItem?.id === item.id;
+                return (
                   <div
+                    key={item.id}
+                    onClick={() => setSelectedLibraryItem(isSelected ? null : item)}
                     style={{
-                      display: "flex",
-                      justifyContent: "space-between",
-                      alignItems: "center",
+                      padding: '6px 8px', marginBottom: 4,
+                      backgroundColor: isSelected ? 'var(--vscode-list-activeSelectionBackground, var(--vscode-button-background))' : 'var(--vscode-input-background)',
+                      color: isSelected ? 'var(--vscode-list-activeSelectionForeground, var(--vscode-button-foreground))' : 'inherit',
+                      borderRadius: 3, cursor: 'pointer',
+                      borderLeft: `3px solid var(--vscode-button-background)`,
                     }}
                   >
-                    <span style={{ fontSize: 12, fontWeight: 500 }}>
-                      {item.title}
-                    </span>
-                    <span style={{ fontSize: 10, opacity: 0.5 }}>
-                      Score: {item.score}
-                    </span>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                      <span style={{ fontSize: 12, fontWeight: 500 }}>{item.title}</span>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+                        <span style={{ fontSize: 10, opacity: 0.6 }}>Score: {item.score}</span>
+                        <button
+                          onClick={e => {
+                            e.stopPropagation();
+                            if (selectedLibraryItem?.id === item.id) { setSelectedLibraryItem(null); }
+                            setLibrary(prev => prev.filter(i => i.id !== item.id));
+                            postMessage({ type: 'deleteFromLibrary', payload: item.id });
+                          }}
+                          title="Delete"
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 11, opacity: 0.5, padding: '0 2px', color: 'inherit' }}
+                        >
+                          ✕
+                        </button>
+                      </div>
+                    </div>
+                    <div style={{ fontSize: 10, opacity: 0.6, marginTop: 2 }}>
+                      {item.taskType} · {item.targetTool} · {new Date(item.createdAt).toLocaleDateString()}
+                    </div>
                   </div>
-                  <div style={{ fontSize: 10, opacity: 0.5, marginTop: 2 }}>
-                    {item.taskType} · {item.targetTool} ·{" "}
-                    {new Date(item.createdAt).toLocaleDateString()}
-                  </div>
-                </div>
-              ))}
-              {library.length > 5 && (
-                <div style={{ fontSize: 11, opacity: 0.5, marginTop: 4 }}>
-                  +{library.length - 5} more saved prompts
-                </div>
-              )}
+                );
+              })}
             </div>
           )}
         </>

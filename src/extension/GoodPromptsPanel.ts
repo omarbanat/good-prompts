@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import { SettingsManager } from './settingsManager';
+import { MCPManager } from './mcpManager';
 import { detectContext } from './autoDetect';
 import { captureCodeSnippet, captureGitDiff, captureTerminalError, captureTestFile } from './contextCapture';
 import { ContextData, ExtensionMessage, WebviewMessage } from '../shared/types';
@@ -21,6 +22,7 @@ export class GoodPromptsPanel {
   private readonly _extensionUri: vscode.Uri;
   private readonly _context: vscode.ExtensionContext;
   private readonly _settingsManager: SettingsManager;
+  private readonly _mcpManager: MCPManager;
   private _disposables: vscode.Disposable[] = [];
 
   public static createOrShow(extensionUri: vscode.Uri, context: vscode.ExtensionContext): GoodPromptsPanel {
@@ -53,6 +55,7 @@ export class GoodPromptsPanel {
     this._extensionUri = extensionUri;
     this._context = context;
     this._settingsManager = new SettingsManager(context);
+    this._mcpManager = new MCPManager();
 
     this._panel.webview.html = this._getHtmlForWebview(this._panel.webview);
 
@@ -113,15 +116,66 @@ export class GoodPromptsPanel {
         break;
       }
 
+      case 'deleteFromLibrary': {
+        await this._settingsManager.deletePromptFromLibrary(message.payload);
+        break;
+      }
       case 'refreshContext': {
         await this._sendContextUpdate();
+        break;
+      }
+
+      case 'browseMCPServer': {
+        const { serverId } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const { resources, tools } = await this._mcpManager.browse(config);
+          const msg: ExtensionMessage = { type: 'mcpServerBrowsed', payload: { serverId, resources, tools } };
+          this._panel.webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          this._panel.webview.postMessage(msg);
+        }
+        break;
+      }
+
+      case 'fetchMCPResource': {
+        const { serverId, uri, label } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const content = await this._mcpManager.readResource(config, uri);
+          const item = { id: `${serverId}-${Date.now()}`, serverName: config.name, label, content };
+          const msg: ExtensionMessage = { type: 'mcpContentFetched', payload: item };
+          this._panel.webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          this._panel.webview.postMessage(msg);
+        }
+        break;
+      }
+
+      case 'callMCPTool': {
+        const { serverId, toolName, args, label } = message.payload;
+        const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
+        if (!config) { break; }
+        try {
+          const content = await this._mcpManager.callTool(config, toolName, args);
+          const item = { id: `${serverId}-${Date.now()}`, serverName: config.name, label, content };
+          const msg: ExtensionMessage = { type: 'mcpContentFetched', payload: item };
+          this._panel.webview.postMessage(msg);
+        } catch (err) {
+          const msg: ExtensionMessage = { type: 'mcpError', payload: { serverId, message: err instanceof Error ? err.message : String(err) } };
+          this._panel.webview.postMessage(msg);
+        }
         break;
       }
     }
   }
 
   private async _enrichContext(context: ContextData): Promise<ContextData> {
-    const [codeSnippet, gitDiff, terminalError, testFile] = await Promise.all([
+    const [snippet, gitDiff, terminalError, testFile] = await Promise.all([
       captureCodeSnippet(),
       captureGitDiff(),
       captureTerminalError(),
@@ -130,7 +184,8 @@ export class GoodPromptsPanel {
 
     return {
       ...context,
-      codeSnippet,
+      codeSnippet: snippet.text,
+      codeSnippetLineRange: snippet.lineRange,
       gitDiff,
       terminalError,
       testFile
@@ -175,6 +230,7 @@ export class GoodPromptsPanel {
 
   public dispose(): void {
     GoodPromptsPanel.currentPanel = undefined;
+    this._mcpManager.dispose().catch(() => {});
     this._panel.dispose();
     while (this._disposables.length) {
       const disposable = this._disposables.pop();

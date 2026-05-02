@@ -2,27 +2,22 @@ import * as vscode from 'vscode';
 import * as path from 'path';
 import * as cp from 'child_process';
 
-export async function captureCodeSnippet(): Promise<string> {
+export async function captureCodeSnippet(): Promise<{ text: string; lineRange: string }> {
   const editor = vscode.window.activeTextEditor;
   if (!editor) {
-    return '';
+    return { text: '', lineRange: '' };
   }
 
   const selection = editor.selection;
-  if (!selection.isEmpty) {
-    return editor.document.getText(selection);
+  if (selection.isEmpty) {
+    return { text: '', lineRange: '' };
   }
 
-  // No selection — grab visible range, max 100 lines
-  const visibleRange = editor.visibleRanges[0];
-  if (!visibleRange) {
-    return '';
-  }
-
-  const startLine = visibleRange.start.line;
-  const endLine = Math.min(visibleRange.end.line, startLine + 99);
-  const range = new vscode.Range(startLine, 0, endLine, Number.MAX_SAFE_INTEGER);
-  return editor.document.getText(range);
+  const text = editor.document.getText(selection);
+  const start = selection.start.line + 1;
+  const end = selection.end.line + 1;
+  const lineRange = start === end ? `${start}` : `${start}-${end}`;
+  return { text, lineRange };
 }
 
 export async function captureGitDiff(): Promise<string> {

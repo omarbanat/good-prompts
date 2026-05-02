@@ -6,7 +6,6 @@ interface Props {
   contextData: ContextData;
   contextAttachments: ContextAttachments;
   onAttachmentChange: (key: keyof ContextAttachments, value: boolean) => void;
-  onLineRangeChange: (value: string) => void;
   onTerminalErrorChange: (value: string) => void;
 }
 
@@ -47,7 +46,6 @@ export const ContextSection: React.FC<Props> = ({
   contextData,
   contextAttachments,
   onAttachmentChange,
-  onLineRangeChange,
   onTerminalErrorChange
 }) => {
   const [terminalExpanded, setTerminalExpanded] = useState(false);
@@ -94,57 +92,17 @@ export const ContextSection: React.FC<Props> = ({
           Attachments
         </div>
 
-        {/* Code snippet */}
-        {contextData.codeSnippet && (
+        {/* Code snippet — auto-included when there is a selection */}
+        {contextData.codeSnippet ? (
+          <div style={{ marginBottom: 8, display: 'flex', alignItems: 'center', gap: 6 }}>
+            <span style={{ fontSize: 12 }}>Selection</span>
+            <span style={{ opacity: 0.5, fontSize: 10 }}>
+              {contextData.codeSnippetLineRange ? `Lines ${contextData.codeSnippetLineRange}` : charCount(contextData.codeSnippet)}
+            </span>
+          </div>
+        ) : (
           <div style={{ marginBottom: 8 }}>
-            <label style={checkboxLabelStyle}>
-              <input
-                type="checkbox"
-                checked={contextAttachments.codeSnippet}
-                onChange={e => onAttachmentChange('codeSnippet', e.target.checked)}
-                style={{ width: 'auto', cursor: 'pointer' }}
-              />
-              <span>Code snippet</span>
-              <span style={{ opacity: 0.5, fontSize: 10 }}>({charCount(contextData.codeSnippet)})</span>
-            </label>
-            {contextAttachments.codeSnippet && (
-              <div style={{ display: 'flex', alignItems: 'center', gap: 6, paddingLeft: 24, marginTop: 2 }}>
-                <span style={{ fontSize: 11, opacity: 0.6 }}>Lines:</span>
-                <input
-                  type="text"
-                  value={contextAttachments.codeSnippetLineRange}
-                  onChange={e => onLineRangeChange(e.target.value)}
-                  placeholder="e.g. 10-50"
-                  style={{
-                    width: 70,
-                    fontSize: 11,
-                    padding: '2px 5px',
-                    backgroundColor: 'var(--vscode-input-background)',
-                    color: 'var(--vscode-input-foreground)',
-                    border: '1px solid var(--vscode-input-border, rgba(255,255,255,0.15))',
-                    borderRadius: 3,
-                    outline: 'none'
-                  }}
-                />
-                {contextAttachments.codeSnippetLineRange && (
-                  <button
-                    onClick={() => onLineRangeChange('')}
-                    title="Clear line range"
-                    style={{
-                      background: 'none',
-                      border: 'none',
-                      color: 'var(--vscode-editor-foreground)',
-                      cursor: 'pointer',
-                      fontSize: 11,
-                      opacity: 0.5,
-                      padding: '0 2px'
-                    }}
-                  >
-                    ✕
-                  </button>
-                )}
-              </div>
-            )}
+            <span style={{ fontSize: 11, opacity: 0.4 }}>No selection</span>
           </div>
         )}
 
@@ -233,8 +191,8 @@ export const ContextSection: React.FC<Props> = ({
           </label>
         )}
 
-        {!contextData.codeSnippet && !contextData.gitDiff && !contextData.testFile && (
-          <span style={{ fontSize: 11, opacity: 0.5 }}>No attachments available. Open a file or make a git commit.</span>
+        {!contextData.gitDiff && !contextData.testFile && (
+          <span style={{ fontSize: 11, opacity: 0.5 }}>No optional attachments available. Open a file or make a git commit.</span>
         )}
       </div>
     </div>
