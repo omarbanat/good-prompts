@@ -424,7 +424,96 @@ function generateGeminiPrompt(params: GeneratePromptParams): string {
   return lines.join('\n');
 }
 
+function xmlTag(tag: string, content: string): string {
+  return `<${tag}>\n${content}\n</${tag}>`;
+}
+
+function generateXmlPrompt(params: GeneratePromptParams): string {
+  const {
+    taskType,
+    globalSettings,
+    contextData,
+    contextAttachments,
+    outputOptions,
+    bugFixFields,
+    featureFields,
+    refactorFields,
+    codeReviewFields
+  } = params;
+  const sections: string[] = [];
+
+  // <role>
+  const lang = globalSettings.language || contextData.language;
+  const roleBits: string[] = [lang ? `You are a senior ${lang} engineer` : 'You are a senior software engineer'];
+  if (globalSettings.framework) { roleBits.push(`working with ${globalSettings.framework}`); }
+  sections.push(xmlTag('role', `${roleBits.join(' ')}.`));
+
+  // <task> (+ task-specific constraint sections)
+  switch (taskType) {
+    case 'bug-fix': {
+      const t: string[] = ['Fix the following bug.'];
+      if (bugFixFields.whatIsBroken) { t.push(`What is broken: ${bugFixFields.whatIsBroken}`); }
+      if (bugFixFields.expectedBehavior) { t.push(`Expected behavior: ${bugFixFields.expectedBehavior}`); }
+      if (bugFixFields.actualBehavior) { t.push(`Actual behavior: ${bugFixFields.actualBehavior}`); }
+      sections.push(xmlTag('task', t.join('\n')));
+      if (bugFixFields.constraints) { sections.push(xmlTag('constraints', bugFixFields.constraints)); }
+      break;
+    }
+    case 'feature': {
+      const role = featureFields.role || 'developer';
+      const goal = featureFields.goal || '...';
+      const reason = featureFields.reason || '...';
+      const t: string[] = [`As a ${role}, I want to ${goal}, so that ${reason}.`];
+      if (featureFields.acceptanceCriteria) { t.push(`Acceptance criteria:\n${featureFields.acceptanceCriteria}`); }
+      sections.push(xmlTag('task', t.join('\n\n')));
+      const cons: string[] = [];
+      if (featureFields.scopeBoundaries) { cons.push(`Do NOT change: ${featureFields.scopeBoundaries}`); }
+      if (featureFields.dependencies) { cons.push(`Dependencies: ${featureFields.dependencies}`); }
+      if (cons.length) { sections.push(xmlTag('constraints', cons.join('\n'))); }
+      break;
+    }
+    case 'refactor': {
+      const t: string[] = ['Refactor the following code.'];
+      if (refactorFields.currentState) { t.push(`Current state: ${refactorFields.currentState}`); }
+      if (refactorFields.refactorGoal) { t.push(`Goal: ${refactorFields.refactorGoal}`); }
+      sections.push(xmlTag('task', t.join('\n')));
+      if (refactorFields.constraints) { sections.push(xmlTag('constraints', refactorFields.constraints)); }
+      break;
+    }
+    case 'code-review': {
+      const t: string[] = ['Review the following code.'];
+      if (codeReviewFields.focusAreas.length > 0) { t.push(`Focus areas: ${codeReviewFields.focusAreas.join(', ')}`); }
+      const depth = codeReviewFields.reviewDepth === 'thorough' ? 'thorough review' : 'quick scan';
+      t.push(`Review depth: ${depth}`);
+      sections.push(xmlTag('task', t.join('\n')));
+      if (codeReviewFields.knownExclusions) { sections.push(xmlTag('exclusions', codeReviewFields.knownExclusions)); }
+      break;
+    }
+  }
+
+  // <context>
+  const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
+  if (ctx) { sections.push(xmlTag('context', ctx)); }
+
+  // <output_format>
+  const out: string[] = [];
+  if (taskType === 'code-review') {
+    out.push('Return a structured list of findings with severity (critical/major/minor) and suggested fixes.');
+  } else {
+    if (outputOptions.codeOnly) { out.push('Return only the modified code with inline comments explaining each change.'); }
+    if (taskType === 'refactor' && refactorFields.targetOutputFormat) { out.push(refactorFields.targetOutputFormat); }
+    if (outputOptions.scopeToFile) { out.push('Do not modify any other files.'); }
+  }
+  if (out.length) { sections.push(xmlTag('output_format', out.join('\n'))); }
+
+  return sections.join('\n\n');
+}
+
 export function generatePrompt(params: GeneratePromptParams): string {
+  if (params.outputOptions.format === 'xml') {
+    return generateXmlPrompt(params);
+  }
+
   switch (params.targetTool) {
     case 'claude-code':
       return generateClaudeCodePrompt(params);

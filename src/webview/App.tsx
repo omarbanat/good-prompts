@@ -43,6 +43,7 @@ const DEFAULT_GLOBAL_SETTINGS: GlobalSettings = {
 const DEFAULT_CONTEXT_DATA: ContextData = {
   activeFile: "",
   activeFilePath: "",
+  relativeFilePath: "",
   language: "",
   projectName: "",
   codeSnippet: "",
@@ -98,7 +99,7 @@ export const App: React.FC = () => {
   const [featureFields, setFeatureFields] = useState<FeatureFields>(DEFAULT_FEATURE);
   const [refactorFields, setRefactorFields] = useState<RefactorFields>(DEFAULT_REFACTOR);
   const [codeReviewFields, setCodeReviewFields] = useState<CodeReviewFields>(DEFAULT_CODE_REVIEW);
-  const [outputOptions, setOutputOptions] = useState<OutputOptions>({ scopeToFile: true, codeOnly: true });
+  const [outputOptions, setOutputOptions] = useState<OutputOptions>({ scopeToFile: true, codeOnly: true, format: 'structured' });
   const [library, setLibrary] = useState<LibraryPrompt[]>([]);
   const [selectedLibraryItem, setSelectedLibraryItem] = useState<LibraryPrompt | null>(null);
   const [showSettings, setShowSettings] = useState(false);
@@ -381,6 +382,30 @@ export const App: React.FC = () => {
                 Code only
               </label>
             )}
+
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, fontSize: 12 }}>
+              <span style={{ opacity: 0.75 }}>Format:</span>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="outputFormat"
+                  checked={outputOptions.format === 'structured'}
+                  onChange={() => setOutputOptions(prev => ({ ...prev, format: 'structured' }))}
+                  style={{ width: 'auto', cursor: 'pointer' }}
+                />
+                Structured
+              </label>
+              <label style={{ display: 'flex', alignItems: 'center', gap: 4, cursor: 'pointer' }}>
+                <input
+                  type="radio"
+                  name="outputFormat"
+                  checked={outputOptions.format === 'xml'}
+                  onChange={() => setOutputOptions(prev => ({ ...prev, format: 'xml' }))}
+                  style={{ width: 'auto', cursor: 'pointer' }}
+                />
+                XML
+              </label>
+            </div>
           </div>
 
           {selectedLibraryItem && (

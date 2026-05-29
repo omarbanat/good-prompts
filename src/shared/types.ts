@@ -91,9 +91,12 @@ export interface CodeReviewFields {
   reviewDepth: ReviewDepth;
 }
 
+export type OutputFormat = 'structured' | 'xml';
+
 export interface OutputOptions {
   scopeToFile: boolean;
   codeOnly: boolean;
+  format: OutputFormat;
 }
 
 export interface QualityScore {
