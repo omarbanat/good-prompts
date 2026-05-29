@@ -58,9 +58,43 @@ function buildContextBlock(
   return parts.join('\n\n');
 }
 
+function buildClaudeCodeContextBlock(
+  contextData: ContextData,
+  contextAttachments: ContextAttachments,
+  mcpItems: MCPAttachedItem[]
+): string {
+  const parts: string[] = [];
+  const filePath = contextData.relativeFilePath || contextData.activeFile;
+
+  if (filePath && contextData.codeSnippet) {
+    const range = contextData.codeSnippetLineRange;
+    // Use Claude Code's native @mention syntax so the file is attached, not pasted
+    parts.push(range ? `@${filePath}#${range.replace('–', '-')}` : `@${filePath}`);
+  }
+
+  if (contextAttachments.terminalError && contextData.terminalError) {
+    parts.push(`Error:\n${contextData.terminalError}`);
+  }
+
+  if (contextAttachments.gitDiff && contextData.gitDiff) {
+    parts.push(`Git diff:\n\`\`\`diff\n${contextData.gitDiff}\n\`\`\``);
+  }
+
+  if (contextAttachments.testFile && contextData.testFile) {
+    parts.push(`Test file:\n\`\`\`\n${contextData.testFile}\n\`\`\``);
+  }
+
+  for (const item of mcpItems) {
+    parts.push(`${item.label}:\n${item.content}`);
+  }
+
+  return parts.join('\n\n');
+}
+
 function generateClaudeCodePrompt(params: GeneratePromptParams): string {
   const { taskType, contextData, contextAttachments, globalSettings, outputOptions, bugFixFields, featureFields, refactorFields, codeReviewFields } = params;
-  const fileRef = contextData.activeFile ? `\`${contextData.activeFile}\`` : 'the active file';
+  const atFile = contextData.relativeFilePath || contextData.activeFile;
+  const fileRef = atFile ? `@${atFile}` : 'the active file';
 
   switch (taskType) {
     case 'bug-fix': {
@@ -75,7 +109,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (bugFixFields.actualBehavior) {
         lines.push(`\nActual behavior: ${bugFixFields.actualBehavior}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
+      const ctx = buildClaudeCodeContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (bugFixFields.constraints) {
         lines.push(`\nConstraints: ${bugFixFields.constraints}`);
@@ -100,7 +134,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (featureFields.dependencies) {
         lines.push(`\nDependencies / constraints:\n${featureFields.dependencies}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
+      const ctx = buildClaudeCodeContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       lines.push(`\nImplement this in ${fileRef}.`);
       if (outputOptions.scopeToFile) { lines.push('Do not modify any other files.'); }
@@ -117,7 +151,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       if (refactorFields.refactorGoal) {
         lines.push(`\nRefactor goal: ${refactorFields.refactorGoal}`);
       }
-      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
+      const ctx = buildClaudeCodeContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (refactorFields.constraints) {
         lines.push(`\nConstraints: ${refactorFields.constraints}`);
@@ -141,7 +175,7 @@ function generateClaudeCodePrompt(params: GeneratePromptParams): string {
       }
       const depth = codeReviewFields.reviewDepth === 'thorough' ? 'thorough review' : 'quick scan';
       lines.push(`\nReview depth: ${depth}`);
-      const ctx = buildContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
+      const ctx = buildClaudeCodeContextBlock(contextData, contextAttachments, params.mcpItems ?? []);
       if (ctx) { lines.push(`\n${ctx}`); }
       if (globalSettings.language) {
         lines.push(`\nLanguage: ${globalSettings.language}`);

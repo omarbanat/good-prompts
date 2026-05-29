@@ -119,6 +119,11 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
         break;
       }
 
+      case 'openInTool': {
+        await this._openInAITool(message.payload.tool, message.payload.prompt);
+        break;
+      }
+
       case 'browseMCPServer': {
         const { serverId } = message.payload;
         const config = this._settingsManager.getSettings().mcpServers.find(s => s.id === serverId);
@@ -166,6 +171,57 @@ export class GoodPromptsViewProvider implements vscode.WebviewViewProvider {
         break;
       }
     }
+  }
+
+  private async _openInAITool(tool: string, prompt: string): Promise<void> {
+    const toolNames: Record<string, string> = {
+      'claude-code': 'Claude Code',
+      'copilot': 'GitHub Copilot',
+      'chatgpt': 'ChatGPT',
+      'gemini': 'Gemini Code Assist'
+    };
+
+    const name = toolNames[tool] ?? tool;
+
+    if (tool === 'claude-code') {
+      // primaryEditor.open accepts (sessionId, promptText) and injects the
+      // prompt via data-initial-prompt on the webview root element.
+      try {
+        await vscode.commands.executeCommand('claude-vscode.primaryEditor.open', undefined, prompt);
+        return;
+      } catch {
+        // fall through to sidebar fallbacks (no prompt injection, but still opens)
+      }
+      const fallbacks = [
+        'claude-vscode.sidebar.open',
+        'workbench.view.extension.claude-sidebar-secondary',
+        'workbench.view.extension.claude-sidebar'
+      ];
+      for (const cmd of fallbacks) {
+        try {
+          await vscode.commands.executeCommand(cmd);
+          return;
+        } catch { /* try next */ }
+      }
+    } else {
+      const toolCommands: Record<string, string[]> = {
+        'copilot': ['workbench.view.extension.copilot-chat', 'workbench.action.chat.open'],
+        'chatgpt': ['openai.chatgpt.focus', 'workbench.view.extension.chatgpt'],
+        'gemini': ['cloudcode.googleCloudCodeShow', 'workbench.view.extension.gemini-code-assist']
+      };
+      const commands = toolCommands[tool];
+      if (!commands) { return; }
+      for (const cmd of commands) {
+        try {
+          await vscode.commands.executeCommand(cmd);
+          return;
+        } catch { /* try next */ }
+      }
+    }
+
+    vscode.window.showInformationMessage(
+      `Could not open ${name} automatically. Make sure it is installed and try opening it manually.`
+    );
   }
 
   private async _enrichContext(context: ContextData): Promise<ContextData> {

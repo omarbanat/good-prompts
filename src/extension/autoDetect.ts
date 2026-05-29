@@ -73,12 +73,14 @@ export async function detectContext(
 
   let activeFile = '';
   let activeFilePath = '';
+  let relativeFilePath = '';
   let language = '';
 
   if (editor) {
     const uri = editor.document.uri;
     activeFile = path.basename(uri.fsPath);
     activeFilePath = uri.fsPath;
+    relativeFilePath = vscode.workspace.asRelativePath(uri, false);
     const ext = path.extname(uri.fsPath).toLowerCase();
     language = EXT_TO_LANGUAGE[ext] ?? editor.document.languageId ?? '';
   }
@@ -90,6 +92,7 @@ export async function detectContext(
   const contextData: ContextData = {
     activeFile,
     activeFilePath,
+    relativeFilePath,
     language,
     projectName,
     codeSnippet: '',

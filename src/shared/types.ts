@@ -46,6 +46,7 @@ export interface GlobalSettings {
 export interface ContextData {
   activeFile: string;
   activeFilePath: string;
+  relativeFilePath: string;
   language: string;
   projectName: string;
   codeSnippet: string;
@@ -133,6 +134,7 @@ export type WebviewMessage =
   | { type: 'saveToLibrary'; payload: { prompt: string; taskType: TaskType; targetTool: TargetTool; title: string; score: number } }
   | { type: 'deleteFromLibrary'; payload: string }
   | { type: 'refreshContext' }
+  | { type: 'openInTool'; payload: { tool: TargetTool; prompt: string } }
   | { type: 'browseMCPServer'; payload: { serverId: string } }
   | { type: 'fetchMCPResource'; payload: { serverId: string; uri: string; label: string } }
   | { type: 'callMCPTool'; payload: { serverId: string; toolName: string; args: Record<string, unknown>; label: string } };

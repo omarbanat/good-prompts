@@ -10,9 +10,17 @@ interface Props {
   onReset: () => void;
 }
 
+const TOOL_LABELS: Record<string, string> = {
+  'claude-code': 'Claude Code',
+  'copilot': 'Copilot',
+  'chatgpt': 'ChatGPT',
+  'gemini': 'Gemini'
+};
+
 export const ActionButtons: React.FC<Props> = ({ prompt, taskType, targetTool, score, onReset }) => {
   const [copied, setCopied] = useState(false);
   const [saved, setSaved] = useState(false);
+  const [opening, setOpening] = useState(false);
   const [showTitleInput, setShowTitleInput] = useState(false);
   const [title, setTitle] = useState('');
 
@@ -20,6 +28,15 @@ export const ActionButtons: React.FC<Props> = ({ prompt, taskType, targetTool, s
     postMessage({ type: 'copyPrompt', payload: prompt });
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
+  };
+
+  const handleOpenInTool = () => {
+    postMessage({ type: 'copyPrompt', payload: prompt });
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+    postMessage({ type: 'openInTool', payload: { tool: targetTool, prompt } });
+    setOpening(true);
+    setTimeout(() => setOpening(false), 1500);
   };
 
   const handleSaveClick = () => {
@@ -100,14 +117,35 @@ export const ActionButtons: React.FC<Props> = ({ prompt, taskType, targetTool, s
       )}
 
       <div style={{ display: 'flex', gap: 8, flexWrap: 'wrap' }}>
+        {targetTool !== 'other' && (
+          <button
+            onClick={handleOpenInTool}
+            disabled={!prompt}
+            title="Copies the prompt and opens the AI tool"
+            style={{
+              backgroundColor: opening ? '#4daf4a' : 'var(--vscode-button-background)',
+              color: 'var(--vscode-button-foreground)',
+              padding: '7px 18px',
+              fontWeight: 600,
+              fontSize: 13,
+              opacity: !prompt ? 0.5 : 1,
+              cursor: !prompt ? 'not-allowed' : 'pointer',
+              transition: 'background-color 0.2s ease'
+            }}
+          >
+            {opening ? 'Opening...' : `Open ${TOOL_LABELS[targetTool] ?? targetTool} →`}
+          </button>
+        )}
+
         <button
           onClick={handleCopy}
           disabled={!prompt}
           style={{
-            backgroundColor: copied ? '#4daf4a' : 'var(--vscode-button-background)',
-            color: 'var(--vscode-button-foreground)',
+            backgroundColor: copied ? '#4daf4a' : targetTool !== 'other' ? 'var(--vscode-input-background)' : 'var(--vscode-button-background)',
+            color: targetTool !== 'other' ? 'var(--vscode-editor-foreground)' : 'var(--vscode-button-foreground)',
+            border: targetTool !== 'other' ? '1px solid var(--vscode-input-border, rgba(255,255,255,0.2))' : 'none',
             padding: '7px 18px',
-            fontWeight: 600,
+            fontWeight: targetTool !== 'other' ? 500 : 600,
             fontSize: 13,
             opacity: !prompt ? 0.5 : 1,
             cursor: !prompt ? 'not-allowed' : 'pointer',
