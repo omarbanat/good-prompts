@@ -10,6 +10,8 @@ GoodPrompts sits between you and your AI coding assistant. Fill in a structured 
 
 - **4 task types** — Bug Fix, Feature Request, Refactor, Code Review — each with its own form fields
 - **4 model-specific prompt templates** — the same task produces a different, optimized prompt for each AI tool
+- **XML output format** — an alternative format option that wraps the prompt in semantic XML tags (`<role>`, `<task>`, `<constraints>`, `<context>`, `<output_format>`); works across all tools
+- **Open in Tool** — a one-click button that copies the prompt and launches your AI tool directly; shown automatically when a tool is detected
 - **Real-time quality scorer** — 0–100 score across Clarity, Context, Scope, and Expected Output, computed locally with no API call
 - **Auto-detection** — active file, language, project name, and target AI tool detected passively from your workspace
 - **Context injection** — attach code snippet (with line range), git diff, terminal error, or test file with one checkbox each
@@ -141,7 +143,8 @@ Four sub-scores are shown: **Clarity** (0–25), **Context** (0–25), **Scope**
 
 ### Step 7 — Copy and use the prompt
 
-- **Copy Prompt** — writes the generated prompt to your clipboard
+- **Open [Tool Name] →** — copies the prompt to your clipboard and opens the AI tool directly; shown as the primary button whenever a specific tool is detected (Claude Code, Copilot, ChatGPT, or Gemini)
+- **Copy Prompt** — copies to clipboard only; shown as the primary button when no specific tool is detected, or as a secondary button alongside Open
 - **Save to Library** — saves the prompt with a title; accessible in the Saved Prompts section at the bottom of the panel
 - **Reset** — clears all task-specific fields and attachments while keeping your global settings
 
@@ -153,14 +156,16 @@ The same task produces a different prompt depending on the target tool.
 
 ### Claude Code
 
-Short and direct. References files by name only (Claude Code already has your repo). Leads with scope constraints. Appends "Do not modify any other files."
+Short and direct. References files using Claude Code's native `@mention` syntax with relative paths so the file is attached rather than pasted. Leads with scope constraints. Appends "Do not modify any other files."
 
 ```
-In `middleware/auth.ts`, fix the following bug.
+In @middleware/auth.ts, fix the following bug.
 
 What is broken: JWT expiry returns 500 instead of 401
 Expected behavior: Return HTTP 401 with { "error": "Token expired" }
 Actual behavior: Server crashes with 500
+
+@middleware/auth.ts#42-58
 
 Constraints: do not change the function signature
 Do not modify any other files.
@@ -241,6 +246,7 @@ All communication is via VS Code's postMessage API.
 | `copyPrompt` | string | User clicks Copy |
 | `saveToLibrary` | prompt, taskType, tool, title, score | User saves to library |
 | `refreshContext` | — | User clicks Refresh |
+| `openInTool` | tool, prompt | User clicks Open [Tool] → |
 
 ### Build
 
@@ -266,7 +272,9 @@ The scorer is a pure function (`computeScore`) with no side effects and no netwo
 
 ### Prompt generator
 
-`generatePrompt` is a pure function that dispatches to one of four tool-specific generators. Each generator is a switch over the four task types, producing 16 distinct templates total.
+`generatePrompt` is a pure function. It first checks `outputOptions.format` — if set to `'xml'`, it calls `generateXmlPrompt` regardless of the target tool, wrapping the prompt in `<role>`, `<task>`, `<constraints>`, `<context>`, and `<output_format>` tags. Otherwise it dispatches to one of four tool-specific generators. Each tool generator is a switch over the four task types, producing 16 distinct templates.
+
+The Claude Code generator uses a dedicated `buildClaudeCodeContextBlock` helper that emits `@relative/path/to/file#lineRange` references instead of pasting code inline, so Claude Code can attach the file natively.
 
 ---
 

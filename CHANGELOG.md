@@ -1,5 +1,22 @@
 # Changelog
 
+## [0.4.0] - 2026-05-31
+
+### Added
+
+- XML output format — an alternative to the tool-specific format that wraps the prompt in `<role>`, `<task>`, `<constraints>`, `<context>`, and `<output_format>` XML tags; available for all target tools via the Output Options controls
+- `OutputFormat` type (`'structured' | 'xml'`) and `format` field on `OutputOptions`
+- `generateXmlPrompt` generator in `promptGenerator.ts`; `generatePrompt` checks this before dispatching to tool-specific generators
+- **Open in Tool** button in `ActionButtons` — copies the prompt and opens the AI tool directly; shown as the primary action whenever a specific tool (Claude Code, Copilot, ChatGPT, Gemini) is detected
+- `openInTool` message type in `WebviewMessage` for extension-host routing
+
+### Changed
+
+- Claude Code prompt generator now uses `@relative/path/to/file` and `@file#lineRange` syntax instead of backtick-wrapped filenames, letting Claude Code attach files natively
+- `ContextData` gains a `relativeFilePath` field populated via `vscode.workspace.asRelativePath`
+- New `buildClaudeCodeContextBlock` helper used by all four Claude Code task templates
+- Copy button is demoted to a secondary style when a specific tool is detected and the Open button takes the primary slot
+
 ## [0.3.0] - 2026-05-02
 
 ### Added

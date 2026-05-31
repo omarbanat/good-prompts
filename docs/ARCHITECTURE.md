@@ -125,6 +125,7 @@ Owns the `vscode.WebviewPanel` lifecycle. Key responsibilities:
 | `copyPrompt` | Write to clipboard via `vscode.env.clipboard.writeText` |
 | `saveToLibrary` | Persist via SettingsManager, send `promptSaved` back |
 | `refreshContext` | Re-run context detection, send `contextUpdated` |
+| `openInTool` | Writes prompt to clipboard, then opens the target tool via `vscode.env.openExternal` or a tool-specific command |
 
 **Active editor listener**: `vscode.window.onDidChangeActiveTextEditor` triggers a re-detect and sends `contextUpdated` so the webview stays in sync as you switch files.
 
@@ -147,6 +148,8 @@ File-based fallbacks:
 2. `.github/copilot-instructions.md` → `copilot`
 
 Returns `null` if none match (webview falls back to `globalSettings.defaultTool`).
+
+**`relativeFilePath`**: Populated via `vscode.workspace.asRelativePath(uri, false)` for the active file. Used by the Claude Code prompt generator to produce `@path/to/file` references instead of bare filenames.
 
 **Graceful degradation**: All workspace API calls are guarded. Missing workspace, no active editor, or failed filesystem checks all return empty strings rather than throwing.
 
@@ -203,20 +206,25 @@ Lazily acquires the VS Code API singleton via `acquireVsCodeApi()` (which can on
 
 ### `utils/promptGenerator.ts`
 
-A pure function `generatePrompt(params: GeneratePromptParams): string` that dispatches to one of four tool-specific generators. No state, no side effects, fully deterministic.
+A pure function `generatePrompt(params: GeneratePromptParams): string`. It first checks `outputOptions.format`:
 
-Each generator is a switch over the four task types, giving 16 distinct templates:
+- **`'xml'`** → calls `generateXmlPrompt`, which is tool-agnostic. Wraps the prompt in `<role>`, `<task>`, `<constraints>`, `<context>`, and `<output_format>` tags. Populates each tag from the same form fields used by the tool-specific generators.
+- **`'structured'`** (default) → dispatches to one of four tool-specific generators.
+
+Each tool-specific generator is a switch over the four task types, giving **16 distinct templates**:
 
 | | Bug Fix | Feature | Refactor | Code Review |
 |---|---|---|---|---|
-| **Claude Code** | File reference + constraints-first | User story + scope boundaries | File reference + goal + constraints | Focus areas + depth |
+| **Claude Code** | `@file` reference + constraints-first | User story + scope boundaries | `@file` reference + goal + constraints | Focus areas + depth |
 | **Copilot** | Role prime + code snippet + error | Role prime + user story | Role prime + current state | Role prime + focus |
 | **ChatGPT** | ## sections (Context/Problem/Expected/Output) | ## sections (Context/Story/Criteria/Output) | ## sections (Current/Goal/Constraints/Output) | ## sections (Context/Review/Output) |
 | **Gemini** | Numbered steps, constraints doubled, line limit | Numbered steps, scope doubled, line limit | Numbered steps, constraints doubled, line limit | Numbered steps, exclusions doubled, line limit |
 
 `other` falls back to the ChatGPT format.
 
-`buildContextBlock` is a shared helper that assembles the optional context attachments (code snippet, terminal error, git diff, test file) into a formatted block.
+**`buildContextBlock`** is the shared helper for Copilot, ChatGPT, Gemini, and XML. It assembles code snippet, terminal error, git diff, and test file attachments into a formatted block.
+
+**`buildClaudeCodeContextBlock`** is the Claude Code-specific variant. Instead of pasting code inline, it emits `@relative/path/to/file#lineRange` so Claude Code attaches the file natively.
 
 ### `utils/scorer.ts`
 
@@ -266,7 +274,7 @@ App
 │   └── CodeReviewForm        Focus area checkboxes + review depth radio
 ├── QualityScorer             Total score + 4 sub-scores + suggestions
 ├── PromptPreview             Pre block with color-coded content
-├── ActionButtons             Copy / Save / Reset
+├── ActionButtons             Open [Tool] (primary, when tool ≠ other) / Copy / Save / Reset
 └── (saved prompts list)      Last 5 library items
 ```
 
